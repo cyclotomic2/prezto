@@ -10,4 +10,201 @@ if [[ -s "${ZDOTDIR:-$HOME}/.zprezto/init.zsh" ]]; then
   source "${ZDOTDIR:-$HOME}/.zprezto/init.zsh"
 fi
 
+# Load machine-specific zshrc if present
+if [[ -f "$HOME/.zshrc.local" ]]; then
+  source "$HOME/.zshrc.local"
+fi
+
 # Customize to your needs...
+
+setopt BASH_REMATCH
+unsetopt AUTO_PUSHD
+unsetopt PUSHD_IGNORE_DUPS
+autoload -Uz select-word-style
+select-word-style normal
+export WORDCHARS='*?_-[]~&;!#$%^(){}<>'
+
+# Search through history for previous commands matching everything up to current cursor
+# position
+autoload -U up-line-or-beginning-search
+autoload -U down-line-or-beginning-search
+zle -N up-line-or-beginning-search
+zle -N down-line-or-beginning-search
+bindkey "^[OA" up-line-or-beginning-search # Up
+bindkey "^[OB" down-line-or-beginning-search # Down
+
+
+# repositories
+FBSOURCE_DIR=~/fbsource
+FBCODE_DIR=$FBSOURCE_DIR/fbcode
+CONFIGERATOR_DIR=~/configerator
+WWW_DIR=~/www
+MYSQL_DIR=~/local/mysql-schemas
+
+FBSOURCE2_DIR=~/fbsource2
+FBCODE2_DIR=$FBSOURCE2_DIR/fbcode
+
+# cd aliases
+alias fbs='cd $FBSOURCE_DIR && get_revs FBSOURCE'
+alias fbc='cd $FBCODE_DIR && get_revs FBSOURCE'
+alias cfg='cd $CONFIGERATOR_DIR && get_revs CONFIGERATOR'
+alias www='cd $WWW_DIR && get_revs WWW'
+alias msq='cd $MYSQL_DIR'
+
+alias fbs2='cd $FBSOURCE2_DIR'
+alias fbc2='cd $FBCODE2_DIR'
+
+# hg aliases
+alias hu='hg update'
+alias hs='hg status'
+alias hd='hg diff'
+alias hsl='hg ssl'
+
+hsc() {
+  if [ $# -eq 0 ]; then
+    hs --change .
+  elif [ $# -eq 1 ]; then
+    hs --change $1
+  else
+    echo "'hsc' takes 0 or 1 argument"
+    return 1
+  fi
+}
+
+hdc() {
+  local rev="."
+  local file=""
+  if [ $# -eq 1 ]; then
+    if [[ $1 = *"/"* ]]; then
+      file=$1
+    else
+      rev=$1
+    fi
+  elif [ $# -eq 2 ]; then
+    rev=$1
+    file=$2
+  elif [ $# -gt 2 ]; then
+    echo "'hdc' takes 0, 1 or 2 arguments."
+    return 1
+  fi
+  hd -c $rev $file
+}
+
+# Current commits
+MASTER=remote/master
+REVISIONS_SUFFIX=_REVISIONS
+ROOT_REVISIONS_SUFFIX=_ROOT_REVISIONS
+REPOS=( FBSOURCE CONFIGERATOR WWW )
+
+find_repo() {
+  local wd=$(pwd)
+  for repo in ${REPOS[@]}; do
+    if [[ $wd = ${${(P)repo}_DIR}* ]]; then
+      CURR_REPO=$repo
+      return
+    fi
+  done
+  echo "You are not in any of the supported repositores!" \
+    "(fbsource, configerator, www)"
+  return 1
+}
+
+hr() {
+  find_repo || return 1
+  local revisions=$CURR_REPO$REVISIONS_SUFFIX
+  hg sl ${${(P)revisions}[@]/#/-r }
+}
+
+hsr() {
+  find_repo || return 1
+  local revisions=$CURR_REPO$REVISIONS_SUFFIX
+  hsl ${${(P)revisions}[@]/#/-r }
+}
+
+get_revs() {
+  local revisions=$1$REVISIONS_SUFFIX
+  local root_revisions=$1$ROOT_REVISIONS_SUFFIX
+  eval $revisions=\( \)
+  eval $root_revisions=\( \)
+  pushd ${${(P)1}_DIR} || return 1
+  hg | while IFS= read line; do
+    if [[ "$line" =~ "^[ ╷│]( │)* [o@x]  (.*)" ]]; then
+      local keys=( "${(f)$(echo ${BASH_REMATCH[-1]} | awk \
+        'BEGIN {FS="  "} {for(i=1;i<=NF;i++)print $i}')}" )
+      local last_key=${keys[-1]}
+      if [[ ${#keys[@]} -le 3 || $last_key =~ ^D[0-9]{7} ]]; then
+        echo "You need a bookmark for commit ${keys[1]}!"
+      else
+        local rev=${last_key%\*}
+        eval $revisions=\( ${${(P)revisions}[@]} $rev \)
+        IFS= read next_line
+        if [[ "$next_line" =~ "^[╭├]─╯  .*" ]]; then
+          eval $root_revisions=\( ${${(P)root_revisions}[@]} $rev \)
+        fi
+      fi
+    fi
+  done
+  popd
+}
+
+gar() {
+  for repo in ${REPOS[@]}; do
+    get_revs $repo
+  done
+}
+
+rb() {
+  find_repo || return 1
+  get_revs $CURR_REPO
+  local root_revisions=$CURR_REPO$ROOT_REVISIONS_SUFFIX
+  local is_first=true
+  if [ $# -eq 0 ]; then
+    local root=$MASTER
+    if [[ $CURR_REPO = FBSOURCE ]]; then
+      root=remote/fbcode/warm
+    fi
+  elif [ $# -eq 1 ]; then
+    root=$1
+  else
+    echo "'rb' takes 0 or 1 arguments."
+    return 1
+  fi
+  for rev in ${${(P)root_revisions}[@]}; do
+    if [ $is_first = false ]; then
+      echo
+    fi
+    is_first=false
+    echo "Rebasing '$rev' onto '$root'..."
+    hg rebase -s $rev -d $root || return 2
+  done
+  get_revs $CURR_REPO
+}
+
+hpr() {
+  find_repo || return 1
+  # if [[ $CURR_REPO = FBCODE ]]; then
+  #   arc pull --latest || return 1
+  # elif [[ $CURR_REPO = CONFIGERATOR || $CURR_REPO = WWW ]]; then
+  #   arc pull || return 1
+  # fi
+  hg pull
+  local root_revisions=$CURR_REPO$ROOT_REVISIONS_SUFFIX
+  if [ ${#${(P)root_revisions}[@]} -ne 0 ]; then
+    echo
+    rb
+  fi
+}
+
+# Compare the changed files in two diffs
+comp() {
+  if [ $# -ne 2 ]; then
+    echo "You must compare TWO diffs"
+    return 1
+  fi
+  comm <(sort <(hs --change $1)) <(sort <(hs --change $2)) -12
+}
+
+function notify {
+  printf "\e]9;Done\a"
+}
+test -e /home/wenfangxu/.iterm2_shell_integration.zsh && source /home/wenfangxu/.iterm2_shell_integration.zsh || true

@@ -18,10 +18,10 @@ fi
 #
 
 if [[ -z "$EDITOR" ]]; then
-  export EDITOR='nano'
+  export EDITOR='vim'
 fi
 if [[ -z "$VISUAL" ]]; then
-  export VISUAL='nano'
+  export VISUAL='vim'
 fi
 if [[ -z "$PAGER" ]]; then
   export PAGER='less'
@@ -46,6 +46,11 @@ typeset -gU cdpath fpath mailpath path
 # cdpath=(
 #   $cdpath
 # )
+
+# Load machine-specific profile if present
+if [[ -f "$HOME/.zprofile.local" ]]; then
+  source "$HOME/.zprofile.local"
+fi
 
 # Set the list of directories that Zsh searches for programs.
 path=(

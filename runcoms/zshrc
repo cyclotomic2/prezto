@@ -33,6 +33,10 @@ zle -N down-line-or-beginning-search
 bindkey "^[OA" up-line-or-beginning-search # Up
 bindkey "^[OB" down-line-or-beginning-search # Down
 
+# Sync history across shells
+setopt INC_APPEND_HISTORY
+setopt SHARE_HISTORY
+
 
 # repositories
 FBSOURCE_DIR=~/fbsource
